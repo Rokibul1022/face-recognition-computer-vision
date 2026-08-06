@@ -4,7 +4,7 @@ A full-stack face recognition system: a Python/FastAPI backend (InsightFace
 `buffalo_l` — RetinaFace detection + ArcFace embeddings — plus a FAISS index)
 and a React/Vite frontend styled like a spy-thriller facial-recognition HUD
 (scan-line sweeps, corner-bracket boxes, glitch/decode identity reveals).
-
+demo = https://github.com/Rokibul1022/face-recognition-computer-vision/blob/master/demo.mp4
 ```
 backend/   FastAPI + InsightFace + FAISS
 frontend/  Vite + React + Framer Motion
