@@ -1,0 +1,499 @@
+:root {
+  /* HUD color scheme — themeable via these CSS variables. */
+  --hud-bg: #05080f;
+  --hud-panel: #0a1120;
+  --hud-grid: rgba(0, 255, 255, 0.06);
+  --hud-cyan: #19e6ff;
+  --hud-amber: #ffb020;
+  --hud-green: #2bff88;
+  --hud-red: #ff4d5e;
+  --hud-text: #b8e6ee;
+  --hud-dim: #5f8a94;
+  --hud-line: rgba(25, 230, 255, 0.35);
+
+  --mono: "JetBrains Mono", "Space Mono", ui-monospace, monospace;
+  --sans: "Inter", system-ui, sans-serif;
+
+  --scan-cycle: 1.7s;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--hud-bg);
+  color: var(--hud-text);
+  font-family: var(--sans);
+  overflow: hidden;
+}
+
+/* Subtle scanline grid backdrop */
+.app {
+  position: relative;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background:
+    linear-gradient(rgba(0, 255, 255, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 255, 255, 0.03) 1px, transparent 1px),
+    radial-gradient(1200px 600px at 70% -10%, rgba(25, 230, 255, 0.08), transparent),
+    var(--hud-bg);
+  background-size: 48px 48px, 48px 48px, 100% 100%, 100% 100%;
+}
+
+/* Vignette + noise grain overlay */
+.app::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(ellipse at center, transparent 55%, rgba(0, 0, 0, 0.55) 100%);
+}
+
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 28px;
+  border-bottom: 1px solid var(--hud-line);
+  font-family: var(--mono);
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  z-index: 5;
+}
+
+.app-header .brand {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--hud-cyan);
+  text-shadow: 0 0 12px rgba(25, 230, 255, 0.5);
+}
+
+.app-header .status-tag {
+  font-size: 11px;
+  color: var(--hud-dim);
+}
+
+.app-main {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  z-index: 1;
+}
+
+/* ---------------- Upload ---------------- */
+.upload-wrap {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 24px;
+  padding: 24px;
+}
+
+.upload-title {
+  font-family: var(--mono);
+  font-size: 22px;
+  color: var(--hud-cyan);
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  text-align: center;
+  text-shadow: 0 0 18px rgba(25, 230, 255, 0.35);
+}
+
+.upload-drop {
+  width: min(640px, 90vw);
+  padding: 48px 32px;
+  border: 1px dashed var(--hud-cyan);
+  background: rgba(25, 230, 255, 0.03);
+  border-radius: 8px;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s, transform 0.2s;
+  font-family: var(--mono);
+}
+
+.upload-drop:hover,
+.upload-drop.drag {
+  border-color: var(--hud-green);
+  background: rgba(43, 255, 136, 0.05);
+  transform: scale(1.01);
+}
+
+.upload-drop .hint {
+  font-size: 13px;
+  color: var(--hud-dim);
+  margin-top: 8px;
+  letter-spacing: 0.08em;
+}
+
+.upload-row {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.btn {
+  font-family: var(--mono);
+  font-size: 13px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  padding: 13px 22px;
+  border-radius: 6px;
+  cursor: pointer;
+  border: 1px solid var(--hud-cyan);
+  color: var(--hud-cyan);
+  background: rgba(25, 230, 255, 0.06);
+  transition: all 0.2s;
+}
+
+.btn:hover {
+  background: rgba(25, 230, 255, 0.16);
+  box-shadow: 0 0 18px rgba(25, 230, 255, 0.25);
+}
+
+.btn.primary {
+  background: var(--hud-cyan);
+  color: #031820;
+  font-weight: 700;
+}
+
+.btn.primary:hover {
+  background: #6ef0ff;
+  box-shadow: 0 0 22px rgba(25, 230, 255, 0.5);
+}
+
+.btn.danger {
+  border-color: var(--hud-red);
+  color: var(--hud-red);
+  background: rgba(255, 77, 94, 0.06);
+}
+
+.btn.danger:hover {
+  background: rgba(255, 77, 94, 0.16);
+  box-shadow: 0 0 18px rgba(255, 77, 94, 0.25);
+}
+
+.error-msg {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--hud-red);
+  letter-spacing: 0.05em;
+}
+
+/* ---------------- Scan stage ---------------- */
+.scan-stage {
+  position: relative;
+  height: 100%;
+  display: flex;
+  gap: 16px;
+  padding: 16px 24px 24px;
+}
+
+.media-area {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.media-frame {
+  position: relative;
+  max-width: 100%;
+  max-height: 100%;
+  border: 1px solid var(--hud-line);
+  background: #000;
+  box-shadow: 0 0 40px rgba(25, 230, 255, 0.08), inset 0 0 60px rgba(0, 0, 0, 0.6);
+}
+
+.media-frame img,
+.media-frame video {
+  display: block;
+  max-width: 100%;
+  max-height: calc(100vh - 160px);
+  width: auto;
+  height: auto;
+}
+
+.overlay {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+/* scan-line sweep */
+.scan-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 90px;
+  top: 0;
+  background: linear-gradient(
+    to bottom,
+    transparent,
+    rgba(25, 230, 255, 0.16) 35%,
+    rgba(25, 230, 255, 0.65) 50%,
+    rgba(25, 230, 255, 0.16) 65%,
+    transparent
+  );
+  filter: drop-shadow(0 0 10px rgba(25, 230, 255, 0.7));
+}
+
+/* corner brackets per face */
+.face-box {
+  position: absolute;
+  transform-origin: center;
+}
+
+.bracket {
+  position: absolute;
+  background: currentColor;
+  border-radius: 1px;
+  box-shadow: 0 0 8px currentColor;
+}
+
+.bracket.b-tl { top: 0; left: 0; width: 34%; height: 3px; }
+.bracket.b-tr { top: 0; right: 0; width: 34%; height: 3px; }
+.bracket.b-bl { bottom: 0; left: 0; width: 34%; height: 3px; }
+.bracket.b-br { bottom: 0; right: 0; width: 34%; height: 3px; }
+.bracket.b-lt { top: 0; left: 0; width: 3px; height: 34%; }
+.bracket.b-rt { top: 0; right: 0; width: 3px; height: 34%; }
+.bracket.b-lb { bottom: 0; left: 0; width: 3px; height: 34%; }
+.bracket.b-rb { bottom: 0; right: 0; width: 3px; height: 34%; }
+
+.face-label {
+  position: absolute;
+  left: 0;
+  top: -22px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  white-space: nowrap;
+  color: currentColor;
+  text-shadow: 0 0 6px currentColor;
+}
+
+/* scanning readout near box */
+.face-readout {
+  position: absolute;
+  right: 0;
+  bottom: -20px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  color: var(--hud-cyan);
+  white-space: nowrap;
+}
+
+/* ---------------- Identity panel ---------------- */
+.identity-panel {
+  width: 340px;
+  flex-shrink: 0;
+  background: linear-gradient(180deg, rgba(10, 17, 32, 0.92), rgba(5, 8, 15, 0.96));
+  border: 1px solid var(--hud-line);
+  border-radius: 8px;
+  padding: 20px;
+  font-family: var(--mono);
+  box-shadow: 0 0 30px rgba(25, 230, 255, 0.06);
+  overflow: auto;
+  max-height: 100%;
+}
+
+.identity-panel.match { border-color: rgba(43, 255, 136, 0.5); }
+.identity-panel.nomatch { border-color: rgba(255, 77, 94, 0.5); }
+
+.identity-panel .panel-title {
+  font-size: 11px;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: var(--hud-dim);
+  margin-bottom: 14px;
+  display: flex;
+  justify-content: space-between;
+}
+
+.id-card {
+  border: 1px solid var(--hud-line);
+  border-radius: 6px;
+  padding: 14px;
+  margin-bottom: 12px;
+  background: rgba(0, 0, 0, 0.25);
+}
+
+.id-card.match {
+  border-color: rgba(43, 255, 136, 0.45);
+  box-shadow: inset 0 0 24px rgba(43, 255, 136, 0.06);
+}
+
+.id-card.nomatch {
+  border-color: rgba(255, 77, 94, 0.45);
+  box-shadow: inset 0 0 24px rgba(255, 77, 94, 0.06);
+}
+
+.identity-panel .id-name {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--hud-cyan);
+  margin-bottom: 16px;
+  text-shadow: 0 0 12px rgba(25, 230, 255, 0.35);
+  letter-spacing: 0.05em;
+}
+
+.identity-panel.nomatch .id-name { color: var(--hud-red); text-shadow: 0 0 12px rgba(255, 77, 94, 0.4); }
+
+.identity-panel .id-field {
+  margin-bottom: 10px;
+}
+
+.identity-panel .id-field .k {
+  font-size: 10px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--hud-dim);
+  margin-bottom: 3px;
+}
+
+.identity-panel .id-field .v {
+  font-size: 13px;
+  color: var(--hud-text);
+  word-break: break-word;
+}
+
+.identity-panel .id-field .v.mono { font-family: var(--mono); }
+
+.identity-panel .decode-text {
+  font-family: var(--mono);
+  letter-spacing: 0.04em;
+}
+
+/* ---------------- Confidence meter ---------------- */
+.meter {
+  margin-top: 16px;
+}
+
+.meter .meter-head {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--hud-dim);
+  margin-bottom: 6px;
+}
+
+.meter .meter-bar {
+  height: 6px;
+  border: 1px solid var(--hud-line);
+  border-radius: 3px;
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.5);
+}
+
+.meter .meter-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--hud-amber), var(--hud-green));
+  box-shadow: 0 0 10px currentColor;
+}
+
+.meter .meter-pct {
+  text-align: right;
+  font-size: 15px;
+  font-weight: 700;
+  margin-top: 4px;
+  color: var(--hud-green);
+}
+
+/* ---------------- Video scrubber ---------------- */
+.video-controls {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 10px 14px;
+  background: linear-gradient(transparent, rgba(0, 0, 0, 0.85));
+  pointer-events: auto;
+}
+
+.video-controls input[type="range"] {
+  width: 100%;
+  accent-color: var(--hud-cyan);
+  cursor: pointer;
+}
+
+.video-controls .vc-row {
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.15em;
+  color: var(--hud-dim);
+  margin-top: 4px;
+}
+
+/* ---------------- Live cam ---------------- */
+.live-badge {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.2em;
+  color: var(--hud-red);
+  text-shadow: 0 0 8px currentColor;
+  z-index: 2;
+}
+
+.live-badge .dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--hud-red);
+  margin-right: 6px;
+  animation: pulse 1.2s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.2; }
+}
+
+/* glitchy top HUD frame counter */
+.fps-counter {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  color: var(--hud-cyan);
+  z-index: 2;
+}
+
+/* ---------------- misc ---------------- */
+.spin {
+  display: inline-block;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.hidden-file-input {
+  display: none;
+}

@@ -1,0 +1,13 @@
+# Local source enrollment photos + metadata (real PII — never commit).
+images/
+info/
+
+# Windows artifacts
+nul
+Thumbs.db
+desktop.ini
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/

@@ -1,0 +1,38 @@
+# PII & enrolled identities — never commit these.
+data/
+gallery.index
+gallery_meta.json
+*.pkl
+
+# Secrets / env
+.env
+*.env
+.env.local
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+dist/
+build/
+
+# Models are large downloads; keep them out of git.
+models/
+
+# Tests / tooling
+.pytest_cache/
+.coverage
+.mypy_cache/
+.ruff_cache/
+.mypy_cache/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Logs
+*.log
