@@ -60,6 +60,26 @@ class Person:
         )
 
 
+@dataclass
+class PersonRecord:
+    person_id: str
+    name: str
+    nid: str
+    age: int
+    address: str
+    number: str
+
+    def to_dict(self) -> dict:
+        return {
+            "person_id": self.person_id,
+            "name": self.name,
+            "nid": self.nid,
+            "age": self.age,
+            "address": self.address,
+            "number": self.number,
+        }
+
+
 class PersonRepository:
     """Flat-file implementation of the person store."""
 
@@ -74,6 +94,25 @@ class PersonRepository:
             for p in self.data_dir.glob("*.json")
             if not p.name.startswith(".")
         )
+
+    def all(self) -> list[PersonRecord]:
+        """Every enrolled person, including ones the matcher had to skip."""
+        records: list[PersonRecord] = []
+        for person_id in self.person_ids():
+            person = self.get(person_id)
+            if person is None:
+                continue
+            records.append(
+                PersonRecord(
+                    person_id=person_id,
+                    name=person.name,
+                    nid=person.nid,
+                    age=person.age,
+                    address=person.address,
+                    number=person.number,
+                )
+            )
+        return records
 
     def get(self, person_id: str) -> Person | None:
         meta_path = self.data_dir / f"{person_id}.json"
@@ -94,6 +133,15 @@ class PersonRepository:
             for p in self.data_dir.glob(f"{person_id}{ext}")
         )
 
+    def photo_bytes(self, person_id: str) -> tuple[bytes, str] | None:
+        """(raw bytes, mime type) of the first enrollment photo, or None."""
+        for p in self.photo_paths(person_id):
+            mime = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg"}.get(
+                p.suffix.lower(), "application/octet-stream"
+            )
+            return p.read_bytes(), mime
+        return None
+
     def save_photo(self, person_id: str, png_bytes: bytes) -> Path:
         """Persist an uploaded enrollment photo as data/{person_id}.png."""
         path = self.data_dir / f"{person_id}.png"
@@ -106,6 +154,15 @@ class PersonRepository:
             json.dumps({k: info.get(k) for k in PERSON_META_FIELDS}, indent=2),
             encoding="utf-8",
         )
+
+    def delete(self, person_id: str) -> bool:
+        """Remove every file belonging to a person. Returns True if anything existed."""
+        removed = False
+        for p in self.photo_paths(person_id) + [self.data_dir / f"{person_id}.json"]:
+            if p.exists():
+                p.unlink()
+                removed = True
+        return removed
 
     # --- enrollment helpers ------------------------------------------------
     def average_embedding(self, person_id: str) -> np.ndarray | None:

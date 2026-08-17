@@ -27,8 +27,16 @@ from fastapi.middleware.cors import CORSMiddleware
 from pathlib import Path
 
 from . import config
+from .api.router import build_api_router
+from .api.chat import build_chat_reply  # noqa: F401 (re-exported convenience)
+from .agent.graph import AgentPipeline
+from .db.store import AgentStore
+from .events.bus import EventBus
+from .events.router import build_events_router
 from .logging_setup import request_id_var, setup_logging
 from .matcher import GalleryMatcher
+from .memory.long_term import LongTermMemory, default_long_term
+from .memory.short_term import ShortTermMemory
 from .models import (
     EnrollResponse,
     GalleryStatus,
@@ -39,6 +47,7 @@ from .models import (
 from .repository import PersonRepository
 from .service import RecognitionService
 from .validation import sniff_image
+from .websocket.realtime import realtime
 
 setup_logging()
 logger = logging.getLogger(__name__)
@@ -59,6 +68,12 @@ repo = PersonRepository()
 matcher = GalleryMatcher()
 service = RecognitionService(repo, matcher)
 
+# --- Agent layer singletons --------------------------------------------------
+agent_store = AgentStore()
+agent_short_term = ShortTermMemory()
+agent_pipeline = AgentPipeline(agent_store, agent_short_term, default_long_term)
+event_bus = EventBus(agent_pipeline)
+
 
 @app.middleware("http")
 async def request_id_middleware(request, call_next):
@@ -73,6 +88,19 @@ async def request_id_middleware(request, call_next):
 @app.on_event("startup")
 async def _startup() -> None:
     service.ensure_gallery()
+    await event_bus.start()
+
+
+@app.on_event("shutdown")
+async def _shutdown() -> None:
+    await event_bus.stop()
+
+
+# --------------------------------------------------------------------------
+# Routers
+# --------------------------------------------------------------------------
+app.include_router(build_events_router(agent_store, event_bus))
+app.include_router(build_api_router(agent_store, default_long_term, repo, matcher, service))
 
 
 # --------------------------------------------------------------------------
@@ -87,13 +115,23 @@ async def enroll(
     age: int = Form(0),
     address: str = Form(""),
     number: str = Form(""),
+    bbox: str = Form(""),
 ) -> EnrollResponse:
     person_id = person_id.strip().lower()
     if not person_id:
         raise HTTPException(status_code=400, detail="person_id is required.")
 
     data, _fmt = sniff_image(image)
-    png_bytes = _reencode_png(data)
+    frame = _decode_to_bgr(data)
+    if frame is None:
+        raise HTTPException(status_code=400, detail="Could not decode image bytes.")
+
+    if bbox:
+        # A tight crop often fails re-detection (the classic single-photo /
+        # tiny-crop false negative). Crop server-side from the full frame with
+        # generous padding, guaranteeing a clean, matchable enrollment photo.
+        frame = _crop_bbox(frame, bbox)
+    png_bytes = _reencode_png(frame)
 
     info = {"name": name, "nid": nid, "age": age, "address": address, "number": number}
     repo.save_photo(person_id, png_bytes)
@@ -118,16 +156,27 @@ async def enroll(
     )
 
 
-def _reencode_png(data: bytes) -> bytes:
-    """Re-encode any validated image as PNG for storage."""
-    import numpy as np
-    from PIL import Image
+def _crop_bbox(frame, bbox: str) -> np.ndarray:
+    """Crop a face region from the full frame with padded margins."""
+    try:
+        x1, y1, x2, y2 = [float(v) for v in bbox.split(",")]
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=400, detail="bbox must be 'x1,y1,x2,y2'.")
+    h, w = frame.shape[:2]
+    pad_x = (x2 - x1) * 0.25
+    pad_y = (y2 - y1) * 0.25
+    sx = int(max(0, x1 - pad_x))
+    sy = int(max(0, y1 - pad_y))
+    ex = int(min(w, x2 + pad_x))
+    ey = int(min(h, y2 + pad_y))
+    if ex <= sx or ey <= sy:
+        raise HTTPException(status_code=400, detail="bbox is outside the image.")
+    return frame[sy:ey, sx:ex]
 
-    with Image.open(io.BytesIO(data)) as img:
-        rgb = img.convert("RGB")
-        arr = np.asarray(rgb)
-    bgr = cv2.cvtColor(arr, cv2.COLOR_RGB2BGR)
-    ok, buf = cv2.imencode(".png", bgr)
+
+def _reencode_png(frame: np.ndarray) -> bytes:
+    """Re-encode a BGR frame as PNG for storage."""
+    ok, buf = cv2.imencode(".png", frame)
     if not ok:
         raise HTTPException(status_code=400, detail="Could not store image.")
     return buf.tobytes()
@@ -308,3 +357,22 @@ async def gallery_status() -> GalleryStatus:
 @app.get("/health")
 async def health() -> dict:
     return {"status": "ok", "gallery_size": len(matcher.ids) if matcher.is_ready() else 0}
+
+
+# --------------------------------------------------------------------------
+# Realtime dashboard feed
+# --------------------------------------------------------------------------
+@app.websocket("/ws/live")
+async def ws_live(websocket: WebSocket) -> None:
+    """Realtime push of incidents/alerts to the dashboard.
+
+    Client connects and receives `{"type":"incident", ...}` messages whenever
+    the agent pipeline classifies a new event.
+    """
+    await realtime.connect(websocket)
+    try:
+        while True:
+            # Keep the connection alive; client may send pings.
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        await realtime.disconnect(websocket)

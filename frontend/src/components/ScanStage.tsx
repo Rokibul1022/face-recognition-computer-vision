@@ -4,6 +4,7 @@ import type { FaceResult, VideoResponse } from "../types";
 import FaceBoxOverlay, { type BoxState } from "./FaceBoxOverlay";
 import IdentityPanel, { type PanelItem } from "./IdentityPanel";
 import ScanLine from "./ScanLine";
+import UnknownFacePrompt from "./UnknownFacePrompt";
 
 export type ScanMode = "image" | "video" | "live";
 
@@ -29,6 +30,53 @@ const bboxToBox = (bbox: [number, number, number, number], w: number, h: number)
 
 const stateFor = (r: FaceResult): BoxState => (r.matched ? "match" : "nomatch");
 
+/** Coarse key for deduplicating prompts for the "same" unknown face across frames. */
+const faceKey = (r: FaceResult): string => {
+  const [x1, y1, x2, y2] = r.bbox;
+  return `${Math.round(x1 / 40)}:${Math.round(y1 / 40)}:${Math.round(x2 / 40)}:${Math.round(y2 / 40)}`;
+};
+
+/**
+ * Crop the face region out of the current media element so it can be offered
+ * as the enrollment photo. bbox is in source pixels (naturalWidth/videoWidth).
+ */
+function cropFaceRegion(
+  media: HTMLImageElement | HTMLVideoElement | null,
+  bbox: [number, number, number, number]
+): Promise<File | null> {
+  if (!media) return Promise.resolve(null);
+  const srcW = media instanceof HTMLVideoElement ? media.videoWidth : media.naturalWidth;
+  const srcH = media instanceof HTMLVideoElement ? media.videoHeight : media.naturalHeight;
+  if (!srcW || !srcH) return Promise.resolve(null);
+
+  const [x1, y1, x2, y2] = bbox;
+  // Expand the crop slightly around the face so the enrollment photo isn't a tight ring.
+  const padX = (x2 - x1) * 0.15;
+  const padY = (y2 - y1) * 0.15;
+  const sx = Math.max(0, x1 - padX);
+  const sy = Math.max(0, y1 - padY);
+  const sw = Math.min(srcW - sx, x2 + padX - sx);
+  const sh = Math.min(srcH - sy, y2 + padY - sy);
+  if (sw <= 0 || sh <= 0) return Promise.resolve(null);
+
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.round(sw);
+  canvas.height = Math.round(sh);
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return Promise.resolve(null);
+  ctx.drawImage(media, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
+
+  return new Promise((resolve) => {
+    canvas.toBlob((blob) => {
+      if (!blob) {
+        resolve(null);
+        return;
+      }
+      resolve(new File([blob], "unknown-face.jpg", { type: "image/jpeg" }));
+    }, "image/jpeg");
+  });
+}
+
 export default function ScanStage({ mode, file, onBack }: Props) {
   const { recognizeImage, recognizeVideo, connect, disconnect, sendLiveFrame } = useFaceRecognition();
 
@@ -40,10 +88,22 @@ export default function ScanStage({ mode, file, onBack }: Props) {
   const [videoReady, setVideoReady] = useState(false);
   const [videoTime, setVideoTime] = useState(0);
   const [liveOn, setLiveOn] = useState(false);
+  const [rescanKey, setRescanKey] = useState(0);
+  const [resultDone, setResultDone] = useState(false);
+  const [autoReturnIn, setAutoReturnIn] = useState<number | null>(null);
+  const stayRef = useRef(false);
+  const [prompt, setPrompt] = useState<{
+    key: string;
+    face: FaceResult;
+    crop: File | null;
+    full: File | null;
+  } | null>(null);
+  const promptedKeysRef = useRef<Set<string>>(new Set());
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const imgRef = useRef<HTMLImageElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const liveGenRef = useRef(0);
   const timelineRef = useRef<VideoResponse["timeline"]>([]);
   const sustainedRef = useRef<Sustained[]>([]);
   const [, forceTick] = useState(0);
@@ -66,7 +126,12 @@ export default function ScanStage({ mode, file, onBack }: Props) {
     if (mode === "live") {
       startLive();
       return () => {
+        // Invalidate any in-flight getUserMedia of this generation so a stale
+        // promise can't overwrite the ref (StrictMode remount) — and kill the
+        // camera once, here, so it's always released on the way out.
+        liveGenRef.current += 1;
         streamRef.current?.getTracks().forEach((t) => t.stop());
+        streamRef.current = null;
         disconnect();
         setLiveOn(false);
       };
@@ -75,17 +140,24 @@ export default function ScanStage({ mode, file, onBack }: Props) {
   }, [mode, file]);
 
   async function startLive() {
+    const gen = liveGenRef.current;
     setError(null);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { width: { ideal: 640 }, height: { ideal: 480 } },
         audio: false,
       });
+      // A newer generation was started (or we unmounted) meanwhile — release
+      // this stream and don't touch shared state with stale data.
+      if (gen !== liveGenRef.current) {
+        stream.getTracks().forEach((t) => t.stop());
+        return;
+      }
       streamRef.current = stream;
       setLiveOn(true);
       connect(handleLiveResult, (e) => setError(e));
     } catch (e) {
-      setError("Camera access denied or unavailable.");
+      if (gen === liveGenRef.current) setError("Camera access denied or unavailable.");
     }
   }
 
@@ -180,7 +252,7 @@ export default function ScanStage({ mode, file, onBack }: Props) {
           }))
         );
         setTimeout(() => {
-          if (!cancelled)
+          if (!cancelled) {
             setFaces(
               res.faces.map((f) => ({
                 ...bboxToBox(f.bbox, dim?.w ?? f.bbox[2] + 1, dim?.h ?? f.bbox[3] + 1),
@@ -188,6 +260,8 @@ export default function ScanStage({ mode, file, onBack }: Props) {
                 result: f,
               }))
             );
+            setResultDone(true);
+          }
         }, 550);
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : "Recognition failed.");
@@ -196,7 +270,7 @@ export default function ScanStage({ mode, file, onBack }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [mode, file, recognizeImage]);
+  }, [mode, file, recognizeImage, rescanKey]);
 
   // ---------------- video mode ----------------
   useEffect(() => {
@@ -210,6 +284,7 @@ export default function ScanStage({ mode, file, onBack }: Props) {
         setProcessingMs(res.processing_ms);
         setVideoReady(true);
         setVideoTime(0);
+        setResultDone(true);
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : "Video processing failed.");
       }
@@ -269,6 +344,50 @@ export default function ScanStage({ mode, file, onBack }: Props) {
       if (v && v.videoWidth) setMediaDim({ w: v.videoWidth, h: v.videoHeight });
     }
   }, [mode, mediaUrl, videoReady]);
+
+  // ---------------- auto-return to home ----------------
+  // Once a scan task completes, send the operator back to the landing screen
+  // so the system restarts cleanly for the next task — no reload needed.
+  useEffect(() => {
+    if (mode === "live" || !resultDone || prompt || stayRef.current) return;
+    setAutoReturnIn(6);
+    const id = setInterval(() => {
+      setAutoReturnIn((n) => {
+        if (n === null) return n;
+        if (n <= 1) {
+          clearInterval(id);
+          onBack();
+          return null;
+        }
+        return n - 1;
+      });
+    }, 1000);
+    return () => clearInterval(id);
+  }, [mode, resultDone, prompt, onBack]);
+
+  // ---------------- unknown-face prompt ----------------
+  // Whenever an unrecognized face appears, ask the operator if they know it.
+  // Each quantized face is only asked once per scan session.
+  useEffect(() => {
+    if (prompt || faces.length === 0) return;
+    const pending = faces.filter((f) => !f.result.matched);
+    if (pending.length === 0) return;
+    const target = pending.reduce((a, b) => (a.result.score > b.result.score ? a : b));
+    const key = faceKey(target.result);
+    if (promptedKeysRef.current.has(key)) return;
+    promptedKeysRef.current.add(key);
+    const media = mode === "image" ? imgRef.current : videoRef.current;
+    cropFaceRegion(media, target.result.bbox).then((crop) => {
+      frameToFile(media).then((full) => {
+        setPrompt({ key, face: target.result, crop, full });
+      });
+    });
+  }, [faces, prompt, mode]);
+
+  const handleEnrolled = useCallback(() => {
+    // Re-scan a still image so the freshly enrolled face flips to green.
+    if (mode === "image") setRescanKey((k) => k + 1);
+  }, [mode]);
 
   // ---------------- panel data ----------------
   // One identity card per MATCHED face; unknown faces collapse into a single
@@ -363,10 +482,60 @@ export default function ScanStage({ mode, file, onBack }: Props) {
       >
         ← Abort
       </button>
+
+      {autoReturnIn !== null && (
+        <div className="auto-return-banner">
+          SCAN COMPLETE — RETURNING TO HOME IN {autoReturnIn}s
+          <button
+            className="btn ghost small"
+            onClick={() => {
+              stayRef.current = true;
+              setAutoReturnIn(null);
+            }}
+          >
+            STAY
+          </button>
+        </div>
+      )}
+
+      {prompt && (
+        <UnknownFacePrompt
+          key={prompt.key}
+          face={prompt.face}
+          cropFile={prompt.crop}
+          fullFile={prompt.full}
+          bbox={prompt.face.bbox}
+          onEnrolled={handleEnrolled}
+          onClose={() => setPrompt(null)}
+        />
+      )}
     </div>
   );
 }
 
 function dimFromImage(img: HTMLImageElement | null): { w: number; h: number } | null {
   return img && img.naturalWidth ? { w: img.naturalWidth, h: img.naturalHeight } : null;
+}
+
+/** Capture the full current frame (image or video) as a JPEG File for enrollment. */
+function frameToFile(media: HTMLImageElement | HTMLVideoElement | null): Promise<File | null> {
+  if (!media) return Promise.resolve(null);
+  const srcW = media instanceof HTMLVideoElement ? media.videoWidth : media.naturalWidth;
+  const srcH = media instanceof HTMLVideoElement ? media.videoHeight : media.naturalHeight;
+  if (!srcW || !srcH) return Promise.resolve(null);
+  const canvas = document.createElement("canvas");
+  canvas.width = srcW;
+  canvas.height = srcH;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return Promise.resolve(null);
+  ctx.drawImage(media, 0, 0, srcW, srcH);
+  return new Promise((resolve) => {
+    canvas.toBlob((blob) => {
+      if (!blob) {
+        resolve(null);
+        return;
+      }
+      resolve(new File([blob], "frame.jpg", { type: "image/jpeg" }));
+    }, "image/jpeg");
+  });
 }

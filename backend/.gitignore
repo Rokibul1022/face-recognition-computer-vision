@@ -4,6 +4,11 @@ gallery.index
 gallery_meta.json
 *.pkl
 
+# Agent-layer local store + memory index.
+agent.db
+agent_memory.index
+agent_memory_meta.json
+
 # Secrets / env
 .env
 *.env

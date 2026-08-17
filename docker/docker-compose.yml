@@ -1,0 +1,46 @@
+# AI CCTV Monitoring Agent — local multi-service dev.
+#
+#   docker compose -f docker/docker-compose.yml up --build
+#
+# backend: FastAPI + agent pipeline (also runs the edge CV when no GPU box is
+#          available via the optional `edge-cv` service).
+# edge-cv: standalone CV worker that pushes events to the backend.
+services:
+  backend:
+    build:
+      context: ..
+      dockerfile: backend/Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      FR_DATA_DIR: /data
+      FR_DB_PATH: /data/agent.db
+      FR_CORS_ORIGINS: http://localhost:5173,http://localhost
+      # Optional LLM / notifications:
+      # OPENAI_API_KEY: ""
+      # FR_TELEGRAM_BOT_TOKEN: ""
+      # FR_TELEGRAM_CHAT_ID: ""
+    volumes:
+      - appdata:/data
+    restart: unless-stopped
+
+  # Optional: pushes detection events into the backend agent layer.
+  edge-cv:
+    build:
+      context: ..
+      dockerfile: docker/edge-cv.Dockerfile
+    depends_on:
+      - backend
+    environment:
+      EDGE_SOURCE: /video/demo.mp4
+      EDGE_BACKEND: http://backend:8000
+      EDGE_CAMERA_ID: gate-1
+      EDGE_SAMPLE_EVERY: "10"
+      EDGE_FPS: "1"
+    volumes:
+      - ../demo.mp4:/video/demo.mp4
+    restart: unless-stopped
+    profiles: ["cv"]
+
+volumes:
+  appdata:

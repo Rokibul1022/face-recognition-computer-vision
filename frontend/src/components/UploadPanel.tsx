@@ -1,6 +1,6 @@
-import { motion } from "framer-motion";
+import { AnimatePresence, motion } from "framer-motion";
 import { useRef, useState } from "react";
-import { useFaceRecognition } from "../hooks/useFaceRecognition";
+import EnrollForm from "./EnrollForm";
 
 interface Props {
   onImage: (file: File) => void;
@@ -8,26 +8,15 @@ interface Props {
   onLive: () => void;
 }
 
-const ACCEPT = ".jpg,.jpeg,.png,.jfif,.webp,.bmp,image/*";
+const ACCEPT = ".jpg,.jpeg,.png,.jfif,.webp,.bmp,image/*,.mp4,.avi,.mov,.mkv,.webm,video/*";
 
 export default function UploadPanel({ onImage, onVideo, onLive }: Props) {
-  const { enroll } = useFaceRecognition();
   const inputRef = useRef<HTMLInputElement>(null);
-  const enrollInputRef = useRef<HTMLInputElement>(null);
+  const cctvInputRef = useRef<HTMLInputElement>(null);
   const [drag, setDrag] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [enrollOpen, setEnrollOpen] = useState(false);
-  const [enrollFile, setEnrollFile] = useState<File | null>(null);
-  const [enrollForm, setEnrollForm] = useState({
-    person_id: "",
-    name: "",
-    nid: "",
-    age: "",
-    address: "",
-    number: "",
-  });
-  const [enrollMsg, setEnrollMsg] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [cctvOpen, setCctvOpen] = useState(false);
 
   function handleFiles(files: FileList | null) {
     if (!files || files.length === 0) return;
@@ -42,36 +31,6 @@ export default function UploadPanel({ onImage, onVideo, onLive }: Props) {
       return;
     }
     setError("Unsupported file. Drop an image or video.");
-  }
-
-  function pickEnrollFile(files: FileList | null) {
-    if (files && files[0]) {
-      setEnrollFile(files[0]);
-      setEnrollMsg(null);
-    }
-  }
-
-  async function submitEnroll() {
-    if (!enrollFile) {
-      setEnrollMsg("Select a photo first.");
-      return;
-    }
-    if (!enrollForm.person_id.trim()) {
-      setEnrollMsg("person_id is required.");
-      return;
-    }
-    setBusy(true);
-    setEnrollMsg(null);
-    try {
-      const res = await enroll(enrollFile, { ...enrollForm, person_id: enrollForm.person_id.trim() });
-      setEnrollMsg(`Enrolled "${res.person_id}" — ${res.embedded ? "embedded" : "no face found"} (gallery: ${res.gallery_size}).`);
-      setEnrollFile(null);
-      setEnrollForm({ person_id: "", name: "", nid: "", age: "", address: "", number: "" });
-    } catch (e) {
-      setEnrollMsg(e instanceof Error ? e.message : "Enroll failed.");
-    } finally {
-      setBusy(false);
-    }
   }
 
   return (
@@ -103,7 +62,7 @@ export default function UploadPanel({ onImage, onVideo, onLive }: Props) {
         }}
       >
         <div style={{ fontSize: 15, letterSpacing: "0.12em" }}>DROP IMAGE / VIDEO</div>
-        <div className="hint">or click to browse · .jpg .jpeg .png .jfif .webp .bmp</div>
+        <div className="hint">or click to browse · .jpg .jpeg .png .jfif .webp .bmp · .mp4 .avi .mov .mkv .webm</div>
         <input
           ref={inputRef}
           type="file"
@@ -119,10 +78,45 @@ export default function UploadPanel({ onImage, onVideo, onLive }: Props) {
         <button className="btn primary" onClick={onLive}>
           ▶ Start Live Scan
         </button>
+        <button className="btn" onClick={() => setCctvOpen((o) => !o)}>
+          ▣ CCTV FOOTAGE
+        </button>
         <button className="btn" onClick={() => setEnrollOpen((o) => !o)}>
           {enrollOpen ? "Close Enroll" : "+ Enroll Face"}
         </button>
       </div>
+
+      <AnimatePresence>
+        {cctvOpen && (
+          <motion.div
+            className="cctv-menu"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 8 }}
+            transition={{ duration: 0.2 }}
+          >
+            <div className="cctv-menu-title">CCTV FOOTAGE SOURCE</div>
+            <div className="upload-row">
+              <button className="btn cctv-btn" onClick={() => cctvInputRef.current?.click()}>
+                ▤ LOCAL FOOTAGE
+              </button>
+              <button className="btn cctv-btn primary" onClick={onLive}>
+                ◉ LIVE FOOTAGE
+              </button>
+            </div>
+            <div className="hint" style={{ marginTop: 10 }}>
+              Local: pick an image/video from this device · Live: open the attached camera stream
+            </div>
+            <input
+              ref={cctvInputRef}
+              type="file"
+              accept={ACCEPT}
+              className="hidden-file-input"
+              onChange={(e) => handleFiles(e.target.files)}
+            />
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {enrollOpen && (
         <motion.div
@@ -134,66 +128,9 @@ export default function UploadPanel({ onImage, onVideo, onLive }: Props) {
           <div style={{ fontSize: 13, letterSpacing: "0.15em", marginBottom: 12 }}>
             ENROLL NEW IDENTITY
           </div>
-          <div className="upload-row" style={{ marginBottom: 12 }}>
-            <button className="btn" onClick={() => enrollInputRef.current?.click()}>
-              {enrollFile ? `✓ ${enrollFile.name}` : "Select Photo"}
-            </button>
-            <input
-              ref={enrollInputRef}
-              type="file"
-              accept={ACCEPT}
-              className="hidden-file-input"
-              onChange={(e) => pickEnrollFile(e.target.files)}
-            />
-          </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-            <EnrollField label="ID" value={enrollForm.person_id} onChange={(v) => setEnrollForm({ ...enrollForm, person_id: v })} />
-            <EnrollField label="Name" value={enrollForm.name} onChange={(v) => setEnrollForm({ ...enrollForm, name: v })} />
-            <EnrollField label="NID" value={enrollForm.nid} onChange={(v) => setEnrollForm({ ...enrollForm, nid: v })} />
-            <EnrollField label="Age" value={enrollForm.age} onChange={(v) => setEnrollForm({ ...enrollForm, age: v })} />
-            <EnrollField label="Address" value={enrollForm.address} onChange={(v) => setEnrollForm({ ...enrollForm, address: v })} style={{ gridColumn: "1 / -1" }} />
-            <EnrollField label="Phone" value={enrollForm.number} onChange={(v) => setEnrollForm({ ...enrollForm, number: v })} style={{ gridColumn: "1 / -1" }} />
-          </div>
-          <div className="upload-row" style={{ marginTop: 12 }}>
-            <button className="btn primary" onClick={submitEnroll} disabled={busy}>
-              {busy ? "ENROLLING…" : "Enroll"}
-            </button>
-          </div>
-          {enrollMsg && <div className="hint" style={{ marginTop: 10 }}>{enrollMsg}</div>}
+          <EnrollForm />
         </motion.div>
       )}
     </div>
-  );
-}
-
-function EnrollField({
-  label,
-  value,
-  onChange,
-  style,
-}: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  style?: React.CSSProperties;
-}) {
-  return (
-    <label style={{ textAlign: "left", ...style }}>
-      <span className="hint" style={{ display: "block" }}>{label}</span>
-      <input
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        style={{
-          width: "100%",
-          padding: "8px 10px",
-          background: "rgba(0,0,0,0.4)",
-          border: "1px solid var(--hud-line)",
-          color: "var(--hud-text)",
-          fontFamily: "var(--mono)",
-          fontSize: 13,
-          borderRadius: 4,
-        }}
-      />
-    </label>
   );
 }

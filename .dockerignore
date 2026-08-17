@@ -1,0 +1,37 @@
+# Shared build context ignore (used by prod + docker-compose builds).
+# NOTE: backend/models, backend/data, backend/gallery*, backend/agent*
+# are deliberately NOT excluded so Dockerfile.prod can bake the seed data.
+
+# VCS / tooling
+.git
+.gitignore
+.idea
+.vscode
+**/__pycache__
+
+# Python
+**/.venv
+**/.pytest_cache
+**/.mypy_cache
+**/.ruff_cache
+*.py[cod]
+
+# Node
+frontend/node_modules
+frontend/dist
+frontend/*.tsbuildinfo
+
+# Secrets / env (never ship a local .env into an image)
+**/.env
+**/.env.local
+**/.env.example
+
+# Logs / caches
+*.log
+*.tsbuildinfo
+
+# Not needed by the backend/edge-cv images
+demo.mp4
+database/
+images/
+info/

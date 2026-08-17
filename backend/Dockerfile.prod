@@ -1,0 +1,55 @@
+# Production image for Render (Docker). Build context = repo root.
+#
+#   docker build -f backend/Dockerfile.prod -t your-registry/ident-backend:seed .
+#   docker push  your-registry/ident-backend:seed
+#
+# Differs from the dev Dockerfile in two ways:
+#   1. Bakes your stored data (faces, gallery, agent.db, memory) and the
+#      model weights into the image so the deployed app starts with your data
+#      and cold-starts fast (no 600MB re-download).
+#   2. Listens on $PORT (Render injects a random port) instead of hardcoding 8000.
+FROM python:3.12-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    FR_DATA_DIR=/srv/seed/data \
+    FR_GALLERY_INDEX=/srv/seed/gallery.index \
+    FR_GALLERY_META=/srv/seed/gallery_meta.json \
+    FR_DB_PATH=/srv/seed/agent.db \
+    FR_MODELS_DIR=/srv/models \
+    FR_CORS_ORIGINS="*"
+
+WORKDIR /srv
+
+# OpenCV/InsightFace shared libs.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libgl1 \
+    libglib2.0-0 \
+    libsm6 \
+    libxext6 \
+    libxrender1 \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY backend/requirements.txt ./requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY backend/app ./app
+COPY backend/scripts ./scripts
+
+# --- Seed data ---------------------------------------------------------------
+# Your stored state, baked in. Do not ship a local .env — secrets come from
+# Render env vars (OPENAI_API_KEY etc.).
+COPY backend/data ./seed/data
+COPY backend/gallery.index ./seed/gallery.index
+COPY backend/gallery_meta.json ./seed/gallery_meta.json
+COPY backend/agent.db ./seed/agent.db
+COPY backend/agent_memory.index ./agent_memory.index
+COPY backend/agent_memory_meta.json ./agent_memory_meta.json
+COPY backend/models ./models
+
+EXPOSE 8000
+
+# Mode A (default, free tier): uses the baked /srv/seed copy directly.
+# Mode B (persistent disk): set FR_COPY_SEED=1 + point FR_DATA_DIR/FR_DB_PATH
+#   at the mount; entrypoint copies seed into the empty disk on first boot.
+CMD ["sh", "/srv/scripts/entrypoint.sh"]

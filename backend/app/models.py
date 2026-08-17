@@ -55,3 +55,101 @@ class EnrollResponse(BaseModel):
 class GalleryStatus(BaseModel):
     enrolled: list[str]
     size: int
+
+
+class FaceDetail(BaseModel):
+    person_id: str
+    name: str = ""
+    nid: str = ""
+    age: int = 0
+    address: str = ""
+    number: str = ""
+    photo_url: str | None = None
+
+
+class FaceUpdate(BaseModel):
+    name: str = ""
+    nid: str = ""
+    age: int = 0
+    address: str = ""
+    number: str = ""
+
+
+# --- Agent layer -------------------------------------------------------------
+
+class EventIn(BaseModel):
+    """Structured event pushed by the CV pipeline (see README event schema)."""
+
+    event_id: str | None = None
+    camera_id: str = "gate-1"
+    track_id: int | None = None
+    identity: str = "unknown"
+    identity_confidence: float = 0.0
+    detection_type: str = "person"
+    bbox: list[float] = []
+    duration_in_frame_sec: float = 0.0
+    timestamp: str | None = None
+    snapshot_url: str | None = None
+
+
+class EventOut(BaseModel):
+    event_id: str
+    camera_id: str
+    track_id: int | None = None
+    identity: str
+    identity_confidence: float
+    detection_type: str
+    bbox: list[float]
+    duration_in_frame_sec: float
+    timestamp: str
+    snapshot_url: str | None = None
+
+
+class Decision(BaseModel):
+    action: str  # notify | log_only | ignore | escalate
+    severity: str  # INFO | WARNING | CRITICAL
+    reasoning: str
+    reference_incident_id: str | None = None
+
+
+class IncidentOut(BaseModel):
+    id: str
+    event_id: str | None = None
+    severity: str
+    action: str
+    reasoning: str
+    reference_incident_id: str | None = None
+    resolved: bool
+    created_at: str
+
+
+class AlertIn(BaseModel):
+    message: str
+    severity: str = "WARNING"
+    channels: list[str] = []
+
+
+class ChatIn(BaseModel):
+    message: str
+
+
+class ChatOut(BaseModel):
+    reply: str
+    references: list[dict] = []
+
+
+class SummaryOut(BaseModel):
+    generated_at: str
+    window_seconds: int
+    total_events: int
+    incidents: list[dict]
+    by_severity: dict[str, int]
+    top_reference_incident_id: str | None = None
+
+
+class IncidentReport(BaseModel):
+    id: str
+    incident_id: str
+    format: str
+    summary: str
+    created_at: str

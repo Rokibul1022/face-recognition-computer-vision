@@ -8,8 +8,24 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-# --- Paths ----------------------------------------------------------------
+
+def _load_dotenv(path: Path) -> None:
+    """Minimal .env loader (no dependency). Real env vars always win."""
+    if not path.exists():
+        return
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        key = key.strip()
+        value = value.strip().strip('"').strip("'")
+        if key and key not in os.environ:
+            os.environ[key] = value
+
+
 BASE_DIR = Path(__file__).resolve().parent.parent
+_load_dotenv(BASE_DIR / ".env")
 DATA_DIR = Path(os.getenv("FR_DATA_DIR", BASE_DIR / "data"))
 GALLERY_INDEX_PATH = Path(
     os.getenv("FR_GALLERY_INDEX", BASE_DIR / "gallery.index")
@@ -62,3 +78,58 @@ LOG_LEVEL = os.getenv("FR_LOG_LEVEL", "INFO").upper()
 # Set this when onnxruntime-gpu cannot find its CUDA libraries. If unset, the
 # app attempts to locate a PyTorch CUDA install automatically.
 CUDA_LIB_DIR = os.getenv("FR_CUDA_LIB_DIR", "")
+
+# --- Agent pipeline ---------------------------------------------------------
+# Local-first agent storage. When Supabase credentials are configured the code
+# path is identical; only the Store backend swaps. See database/schema.sql for
+# the drop-in Supabase/Postgres + pgvector schema.
+DB_PATH = Path(os.getenv("FR_DB_PATH", BASE_DIR / "agent.db"))
+
+# Long-term memory (FAISS index + metadata). Env-overridable so deployments can
+# persist memory on a mounted volume (e.g. Render persistent disk).
+MEMORY_INDEX_PATH = Path(os.getenv("FR_MEMORY_INDEX", BASE_DIR / "agent_memory.index"))
+MEMORY_META_PATH = Path(os.getenv("FR_MEMORY_META", BASE_DIR / "agent_memory_meta.json"))
+
+# Event queue size for the background agent worker; when full the CV push is
+# dropped (logged) rather than blocking the ingestion endpoint.
+EVENT_QUEUE_MAX = int(os.getenv("FR_EVENT_QUEUE_MAX", "1000"))
+
+# Short-term memory TTL (seconds) for a "current incident" window per camera.
+STM_TTL_SEC = int(os.getenv("FR_STM_TTL_SEC", "1800"))  # 30 min
+# Dedupe window: same person_id on the same camera within N seconds collapses
+# into the existing incident instead of spawning a new one.
+EVENT_DEDUPE_SEC = int(os.getenv("FR_EVENT_DEDUPE_SEC", "60"))
+
+# Severity classifier thresholds — the LLM only wakes up for ambiguous cases.
+SEVERITY_LLM_AMBIGUOUS_MIN = float(os.getenv("FR_SEVERITY_LLM_MIN", "0.4"))
+SEVERITY_LLM_AMBIGUOUS_MAX = float(os.getenv("FR_SEVERITY_LLM_MAX", "0.7"))
+
+# Notification gating: severity >= WARNING AND confidence >= threshold notify.
+NOTIFY_MIN_SEVERITY = int(os.getenv("FR_NOTIFY_MIN_SEVERITY", "2"))  # 0=INFO 1=WARNING 2=CRITICAL
+NOTIFY_MIN_CONFIDENCE = float(os.getenv("FR_NOTIFY_MIN_CONFIDENCE", "0.7"))
+
+# --- Optional LLM (reasoning / severity second pass / chat) ------------------
+# All reasoning works deterministically with no key; setting an OpenAI-compatible
+# key upgrades the Reasoning Agent, ambiguous severity cases, and chat.
+LLM_API_KEY = os.getenv("OPENAI_API_KEY", "")
+LLM_BASE_URL = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
+LLM_MODEL = os.getenv("FR_LLM_MODEL", "gpt-4o-mini")
+
+# Notification channels. Each is optional; un-configured channels log + no-op.
+TELEGRAM_BOT_TOKEN = os.getenv("FR_TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_CHAT_ID = os.getenv("FR_TELEGRAM_CHAT_ID", "")
+SLACK_WEBHOOK_URL = os.getenv("FR_SLACK_WEBHOOK_URL", "")
+DISCORD_WEBHOOK_URL = os.getenv("FR_DISCORD_WEBHOOK_URL", "")
+SMTP_HOST = os.getenv("FR_SMTP_HOST", "")
+SMTP_PORT = int(os.getenv("FR_SMTP_PORT", "587"))
+SMTP_USER = os.getenv("FR_SMTP_USER", "")
+SMTP_PASSWORD = os.getenv("FR_SMTP_PASSWORD", "")
+SMTP_FROM = os.getenv("FR_SMTP_FROM", "")
+EMAIL_RECIPIENTS = [
+    r.strip()
+    for r in os.getenv("FR_EMAIL_RECIPIENTS", "").split(",")
+    if r.strip()
+]
+
+# Agent worker: collects recent events for report generation.
+REPORT_WINDOW_SEC = int(os.getenv("FR_REPORT_WINDOW_SEC", "86400"))  # 24h

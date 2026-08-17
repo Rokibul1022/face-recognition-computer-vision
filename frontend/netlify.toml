@@ -1,0 +1,26 @@
+# Netlify deployment config for the frontend.
+#
+# UI: Netlify dashboard -> "Add new site" -> "Import an existing project"
+# then set:
+#   Build command: npm run build
+#   Publish directory: dist
+# Or push this repo and Netlify auto-detects this file.
+
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "20"
+
+# Point the deployed app at your Render backend. Replace ident-backend.onrender.com.
+# WebSocket base defaults to VITE_API_BASE with http->ws, so only override if needed.
+[context.production.environment]
+  VITE_API_BASE = "https://ident-backend.onrender.com"
+  # VITE_WS_BASE = "wss://ident-backend.onrender.com"
+
+# SPA fallback (single-page app has no client routes today, but harmless to keep).
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

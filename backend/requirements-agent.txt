@@ -1,0 +1,9 @@
+# Optional agent-orchestration dependencies. The agent pipeline works without
+# these (it falls back to a sequential async pipeline in app/agent/graph.py);
+# install them to run the same nodes as a LangGraph StateGraph.
+#
+#   pip install -r requirements.txt -r requirements-agent.txt
+#
+langgraph>=0.2
+langchain-core>=0.3
+langchain>=0.3

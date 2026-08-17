@@ -42,3 +42,65 @@ export interface EnrollResponse {
   embedded: boolean;
   gallery_size: number;
 }
+
+export interface FaceDetail {
+  person_id: string;
+  name: string;
+  nid: string;
+  age: number;
+  address: string;
+  number: string;
+  photo_url: string | null;
+}
+
+// ---- Agent-layer types (matching backend app/api/models.py) ----
+
+export interface AgentIncident {
+  id: string;
+  event_id: string;
+  severity: "LOW" | "WARNING" | "HIGH" | "CRITICAL";
+  action: string;
+  reasoning: string;
+  reference_incident_id: string | null;
+  resolved: boolean;
+  created_at: string;
+}
+
+export interface IncidentReport {
+  id: string;
+  incident_id: string;
+  format: string;
+  summary: string;
+  created_at: string;
+}
+
+export interface AlertResult {
+  channels: Record<string, boolean>;
+  delivered: string[];
+}
+
+export interface ChatMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
+export interface ChatReference {
+  event_id: string;
+  description?: string;
+  human?: string;
+  incident_id: string | null;
+  similarity: number;
+}
+
+export interface ChatResponse {
+  reply: string;
+  references: ChatReference[];
+}
+
+export interface SummaryResponse {
+  generated_at: string;
+  window_seconds: number;
+  total_events: number;
+  incidents: AgentIncident[];
+  by_severity: Record<string, number>;
+}

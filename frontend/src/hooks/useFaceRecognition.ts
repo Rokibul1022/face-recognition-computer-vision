@@ -50,7 +50,8 @@ export function useFaceRecognition() {
   const enroll = useCallback(
     async (
       file: File,
-      meta: { person_id: string; name: string; nid: string; age: string; address: string; number: string }
+      meta: { person_id: string; name: string; nid: string; age: string; address: string; number: string },
+      bbox?: [number, number, number, number]
     ): Promise<EnrollResponse> => {
       const body = new FormData();
       body.append("image", file);
@@ -60,6 +61,7 @@ export function useFaceRecognition() {
       body.append("age", meta.age || "0");
       body.append("address", meta.address);
       body.append("number", meta.number);
+      if (bbox) body.append("bbox", bbox.map((v) => v.toFixed(1)).join(","));
       const res = await fetch(`${API_BASE}/enroll`, { method: "POST", body });
       if (!res.ok) throw new Error(await _errorDetail(res));
       return res.json();
@@ -68,6 +70,12 @@ export function useFaceRecognition() {
   );
 
   const connect = useCallback((onResult: (faces: FaceResult[]) => void, onError: (e: string) => void) => {
+    // Never leave a prior socket half-open (StrictMode / rapid re-entry);
+    // a leaked OPEN socket is exactly what makes re-scans hang until reload.
+    if (wsRef.current && (wsRef.current.readyState === WebSocket.OPEN || wsRef.current.readyState === WebSocket.CONNECTING)) {
+      wsRef.current.close();
+    }
+    wsRef.current = null;
     setWsStatus("connecting");
     const ws = new WebSocket(`${WS_BASE}/ws/recognize`);
     wsRef.current = ws;

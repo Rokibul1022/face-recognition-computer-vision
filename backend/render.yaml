@@ -1,0 +1,37 @@
+# Render config for the face-recognition backend.
+#
+# Two ways to deploy. Pick ONE:
+#
+#   A) NO local Docker needed — Render builds FROM GIT (do this one today):
+#        New -> Web Service -> "Build and deploy from a Git repository" ->
+#        pick backend/Dockerfile (dockerContext: backend).
+#        Downside: seed faces (backend/data) + model weights are gitignored,
+#        so the gallery starts EMPTY and the ~600MB models download on the
+#        first boot (every cold start on the free plan). Use a paid plan +
+#        disk to keep the downloaded models between restarts.
+#
+#   B) WITH Docker (do this if you want to deploy your stored data):
+#        ./deploy/build-image.sh ghcr.io/you/ident-backend:seed
+#        New -> Web Service -> "Deploy from container image" -> paste the tag.
+#        Gallery starts with your 19 people; no model re-download.
+#        (Docker is ONLY needed for this one local build.)
+#
+# Environment is intentionally minimal: just the Groq key. Everything else
+# already has sensible defaults in app/config.py.
+services:
+  - type: web
+    name: ident-backend
+    runtime: docker
+    dockerfilePath: backend/Dockerfile
+    dockerContext: backend
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: OPENAI_BASE_URL
+        value: https://api.groq.com/openai/v1
+      - key: FR_LLM_MODEL
+        value: allam-2-7b
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: FR_CORS_ORIGINS
+        value: https://ident-scan.netlify.app
