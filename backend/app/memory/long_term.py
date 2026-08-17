@@ -61,10 +61,12 @@ class LongTermMemory:
         index_path: Path | None = None,
         meta_path: Path | None = None,
         embedder: TextEmbedder | None = None,
+        max_entries: int | None = None,
     ) -> None:
         self.index_path = Path(index_path or config.MEMORY_INDEX_PATH)
         self.meta_path = Path(meta_path or config.MEMORY_META_PATH)
         self.embedder = embedder or TextEmbedder()
+        self.max_entries = int(max_entries or config.MEMORY_MAX_ENTRIES)
         self._index = None
         self._meta: list[dict] = []  # position -> {"event_id", "description", ...}
         self._lock = threading.Lock()
@@ -111,7 +113,27 @@ class LongTermMemory:
             self._ensure_index()
             self._index.add(vec)
             self._meta.append({"event_id": event_id, "description": description, **extra})
+            self._trim()
             self._save()
+
+    def _trim(self) -> None:
+        """Drop the oldest entries when the cap is exceeded (ring buffer)."""
+        import faiss
+
+        overflow = len(self._meta) - self.max_entries
+        if overflow <= 0:
+            return
+        self._meta = self._meta[overflow:]
+        # Rebuild the index from the remaining tail; cheaper and simpler than
+        # renumbering IDs on the raw FAISS index.
+        vecs = np.vstack(
+            [self.embedder.embed(m["description"]) for m in self._meta]
+        ).astype("float32")
+        index = faiss.IndexFlatIP(self.embedder.dim)
+        if len(vecs):
+            index.add(vecs)
+        self._index = index
+        logger.info("Trimmed long-term memory to %d entries.", len(self._meta))
 
     def search(self, description: str, k: int = 5) -> list[dict]:
         """Top-k similar stored events with similarity scores."""

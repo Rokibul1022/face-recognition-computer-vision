@@ -61,14 +61,14 @@ WS_MAX_QUEUE = int(os.getenv("FR_WS_MAX_QUEUE", "4"))  # drop old frames when ba
 # --- CORS -----------------------------------------------------------------
 # "*" = allow any origin (fine for local dev/test). Restrict to explicit
 # origins before deploying (FR_CORS_ORIGINS=http://localhost:5173).
-CORS_ORIGINS = [
-    o.strip()
-    for o in os.getenv(
-        "FR_CORS_ORIGINS",
-        "*",
-    ).split(",")
-    if o.strip()
-]
+# An empty/blank value falls back to "*" so a stray blank env var can never
+# lock every origin out.
+_cors_value = os.getenv("FR_CORS_ORIGINS", "*").strip()
+CORS_ORIGINS = (
+    ["*"]
+    if not _cors_value
+    else [o.strip() for o in _cors_value.split(",") if o.strip()]
+)
 
 # --- Misc -----------------------------------------------------------------
 MAX_UPLOAD_MB = int(os.getenv("FR_MAX_UPLOAD_MB", "50"))
@@ -89,6 +89,11 @@ DB_PATH = Path(os.getenv("FR_DB_PATH", BASE_DIR / "agent.db"))
 # persist memory on a mounted volume (e.g. Render persistent disk).
 MEMORY_INDEX_PATH = Path(os.getenv("FR_MEMORY_INDEX", BASE_DIR / "agent_memory.index"))
 MEMORY_META_PATH = Path(os.getenv("FR_MEMORY_META", BASE_DIR / "agent_memory_meta.json"))
+
+# Cap on remembered events. Memory is an unbounded append-only index otherwise;
+# on a long-running deployment this is a slow but real memory leak. When the
+# cap is hit the oldest events are dropped (ring-buffer behaviour).
+MEMORY_MAX_ENTRIES = int(os.getenv("FR_MEMORY_MAX_ENTRIES", "2000"))
 
 # Event queue size for the background agent worker; when full the CV push is
 # dropped (logged) rather than blocking the ingestion endpoint.

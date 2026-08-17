@@ -10,8 +10,13 @@
 #   2. Listens on $PORT (Render injects a random port) instead of hardcoding 8000.
 FROM python:3.12-slim
 
+# Single-threaded CPU inference keeps onnxruntime's thread-stack memory (and
+# thus the container's RSS) at a minimum — critical on Render's 512MB free tier.
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
+    OMP_NUM_THREADS=1 \
+    OPENBLAS_NUM_THREADS=1 \
+    MKL_NUM_THREADS=1 \
     FR_DATA_DIR=/srv/seed/data \
     FR_GALLERY_INDEX=/srv/seed/gallery.index \
     FR_GALLERY_META=/srv/seed/gallery_meta.json \
